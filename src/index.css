@@ -1,0 +1,55 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 345 40% 97%;
+    --foreground: 340 10% 18%;
+    --card: 345 40% 99%;
+    --card-foreground: 340 10% 18%;
+    --popover: 345 40% 99%;
+    --popover-foreground: 340 10% 18%;
+    --primary: 345 55% 58%;
+    --primary-foreground: 345 40% 97%;
+    --secondary: 345 25% 93%;
+    --secondary-foreground: 340 15% 25%;
+    --muted: 345 15% 94%;
+    --muted-foreground: 340 8% 48%;
+    --accent: 345 35% 93%;
+    --accent-foreground: 345 55% 42%;
+    --destructive: 0 65% 55%;
+    --destructive-foreground: 345 40% 97%;
+    --border: 345 18% 90%;
+    --input: 345 18% 90%;
+    --ring: 345 55% 58%;
+    --radius: 0.75rem;
+    --sidebar-background: 345 40% 99%;
+    --sidebar-foreground: 340 10% 22%;
+    --sidebar-primary: 345 55% 58%;
+    --sidebar-primary-foreground: 345 40% 97%;
+    --sidebar-accent: 345 35% 93%;
+    --sidebar-accent-foreground: 345 55% 42%;
+    --sidebar-border: 345 18% 90%;
+    --sidebar-ring: 345 55% 58%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-family: 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+  }
+}
+
+/* 文章内容样式 */
+.blog-content p {
+  @apply mb-4 leading-relaxed text-foreground/85;
+}
+
+.blog-content p:first-child {
+  @apply mt-0;
+}
