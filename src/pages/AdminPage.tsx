@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Plus,
@@ -10,10 +10,13 @@ import {
   RotateCcw,
   ArrowLeft,
   Cloud,
+  Upload,
+  User,
 } from 'lucide-react';
-import type { BlogPost, Category } from '@/types/blog';
+import type { BlogPost, Category, SiteProfile } from '@/types/blog';
 import { categories, categoryIcons } from '@/data/posts';
 import { usePosts } from '@/data/PostsContext';
+import { useProfile } from '@/data/ProfileContext';
 
 function blankPost(): BlogPost {
   return {
@@ -35,11 +38,21 @@ const inputCls =
   'w-full rounded-lg border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring';
 
 export function AdminPage() {
-  const { posts, loading, addPost, updatePost, deletePost, reset } = usePosts();
+  const { posts, loading, addPost, updatePost, deletePost, reset: resetPosts } = usePosts();
+  const { profile, updateProfile, reset: resetProfile } = useProfile();
+
+  const [view, setView] = useState<'posts' | 'profile'>('posts');
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<BlogPost | null>(null);
   const [publishing, setPublishing] = useState(false);
   const [publishMsg, setPublishMsg] = useState<string>('');
+
+  // 个人资料表单
+  const [pf, setPf] = useState<SiteProfile>(profile);
+  const fileRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (view === 'profile') setPf(profile);
+  }, [view, profile]);
 
   const openNew = () => {
     setEditing(blankPost());
@@ -82,8 +95,8 @@ export function AdminPage() {
     URL.revokeObjectURL(url);
   };
 
-  const handleReset = () => {
-    if (confirm('确定恢复为原始文章？（会清除你浏览器里的本地修改）')) reset();
+  const handleResetPosts = () => {
+    if (confirm('确定恢复为原始文章？（会清除你浏览器里的本地修改）')) resetPosts();
   };
 
   const handlePublish = async () => {
@@ -108,6 +121,20 @@ export function AdminPage() {
     } finally {
       setPublishing(false);
     }
+  };
+
+  const onAvatarUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => setPf((f) => ({ ...f, avatar: reader.result as string }));
+    reader.readAsDataURL(file);
+  };
+
+  const saveProfile = () => updateProfile(pf);
+
+  const handleResetProfile = () => {
+    if (confirm('确定恢复为默认资料？')) resetProfile();
   };
 
   if (loading) {
@@ -138,8 +165,8 @@ export function AdminPage() {
           <button onClick={handleExport} className={btnGhost} title="下载备份">
             <Download className="h-4 w-4" /> 导出备份
           </button>
-          <button onClick={handleReset} className={btnGhost}>
-            <RotateCcw className="h-4 w-4" /> 恢复原始
+          <button onClick={handleResetPosts} className={btnGhost}>
+            <RotateCcw className="h-4 w-4" /> 恢复文章
           </button>
           <button onClick={openNew} className={btnPrimary}>
             <Plus className="h-4 w-4" /> 新建文章
@@ -153,123 +180,221 @@ export function AdminPage() {
         </pre>
       )}
 
-      <p className="mb-6 rounded-lg bg-accent/40 px-4 py-2 text-sm text-muted-foreground">
-        保存即写入项目文件；点「发布到全网」会自动提交并推送到 GitHub，公开链接随之更新，全程无需复制粘贴。
-      </p>
+      {/* 视图切换 */}
+      <div className="mb-6 flex gap-1 rounded-xl border bg-card p-1">
+        <button
+          onClick={() => setView('posts')}
+          className={`flex-1 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+            view === 'posts' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-accent'
+          }`}
+        >
+          文章管理
+        </button>
+        <button
+          onClick={() => setView('profile')}
+          className={`flex-1 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+            view === 'profile' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-accent'
+          }`}
+        >
+          个人资料
+        </button>
+      </div>
 
-      {/* 编辑表单 */}
-      {formOpen && editing && (
-        <div className="mb-8 space-y-4 rounded-xl border bg-card p-6">
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div>
-              <label className="mb-1 block text-sm font-medium">标题</label>
-              <input
-                className={inputCls}
-                value={editing.title}
-                onChange={(e) => setEditing({ ...editing, title: e.target.value })}
-                placeholder="文章标题"
-              />
+      {/* 文章管理 */}
+      {view === 'posts' && (
+        <>
+          <p className="mb-6 rounded-lg bg-accent/40 px-4 py-2 text-sm text-muted-foreground">
+            保存即写入项目文件；点「发布到全网」会自动提交并推送到 GitHub，公开链接随之更新，全程无需复制粘贴。
+          </p>
+
+          {/* 编辑表单 */}
+          {formOpen && editing && (
+            <div className="mb-8 space-y-4 rounded-xl border bg-card p-6">
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <label className="mb-1 block text-sm font-medium">标题</label>
+                  <input
+                    className={inputCls}
+                    value={editing.title}
+                    onChange={(e) => setEditing({ ...editing, title: e.target.value })}
+                    placeholder="文章标题"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-medium">分类</label>
+                  <select
+                    className={inputCls}
+                    value={editing.category}
+                    onChange={(e) =>
+                      setEditing({ ...editing, category: e.target.value as Category })
+                    }
+                  >
+                    {categories.map((c) => (
+                      <option key={c} value={c}>
+                        {categoryIcons[c]} {c}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-medium">日期</label>
+                  <input
+                    type="date"
+                    className={inputCls}
+                    value={editing.date}
+                    onChange={(e) => setEditing({ ...editing, date: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-medium">封面 Emoji</label>
+                  <input
+                    className={inputCls}
+                    value={editing.coverEmoji}
+                    onChange={(e) => setEditing({ ...editing, coverEmoji: e.target.value })}
+                    placeholder="📝"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="mb-1 block text-sm font-medium">摘要</label>
+                <textarea
+                  rows={2}
+                  className={inputCls}
+                  value={editing.summary}
+                  onChange={(e) => setEditing({ ...editing, summary: e.target.value })}
+                  placeholder="一句话简介"
+                />
+              </div>
+
+              <div>
+                <label className="mb-1 block text-sm font-medium">正文（空一行分段）</label>
+                <textarea
+                  rows={10}
+                  className={`${inputCls} font-mono`}
+                  value={editing.content}
+                  onChange={(e) => setEditing({ ...editing, content: e.target.value })}
+                  placeholder={'第一段\n\n第二段'}
+                />
+              </div>
+
+              <div className="flex gap-2">
+                <button onClick={handleSave} className={btnPrimary}>
+                  <Save className="h-4 w-4" /> 保存
+                </button>
+                <button onClick={closeForm} className={btnGhost}>
+                  <X className="h-4 w-4" /> 取消
+                </button>
+              </div>
             </div>
-            <div>
-              <label className="mb-1 block text-sm font-medium">分类</label>
-              <select
-                className={inputCls}
-                value={editing.category}
-                onChange={(e) =>
-                  setEditing({ ...editing, category: e.target.value as Category })
-                }
+          )}
+
+          {/* 文章列表 */}
+          <div className="space-y-3">
+            {posts.map((p) => (
+              <div
+                key={p.id}
+                className="flex items-center gap-3 rounded-xl border bg-card p-4"
               >
-                {categories.map((c) => (
-                  <option key={c} value={c}>
-                    {categoryIcons[c]} {c}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="mb-1 block text-sm font-medium">日期</label>
-              <input
-                type="date"
-                className={inputCls}
-                value={editing.date}
-                onChange={(e) => setEditing({ ...editing, date: e.target.value })}
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-sm font-medium">封面 Emoji</label>
-              <input
-                className={inputCls}
-                value={editing.coverEmoji}
-                onChange={(e) => setEditing({ ...editing, coverEmoji: e.target.value })}
-                placeholder="📝"
-              />
+                <span className="text-2xl">{p.coverEmoji}</span>
+                <div className="min-w-0 flex-1">
+                  <div className="truncate font-medium">{p.title || '（无标题）'}</div>
+                  <div className="text-xs text-muted-foreground">
+                    {categoryIcons[p.category]} {p.category} · {p.date}
+                  </div>
+                </div>
+                <button
+                  onClick={() => openEdit(p)}
+                  className="rounded-lg p-2 text-muted-foreground transition hover:bg-accent hover:text-foreground"
+                  title="编辑"
+                >
+                  <Pencil className="h-4 w-4" />
+                </button>
+                <button
+                  onClick={() => handleDelete(p)}
+                  className="rounded-lg p-2 text-muted-foreground transition hover:bg-destructive/10 hover:text-destructive"
+                  title="删除"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+
+      {/* 个人资料 */}
+      {view === 'profile' && (
+        <div className="space-y-4 rounded-xl border bg-card p-6">
+          <p className="rounded-lg bg-accent/40 px-4 py-2 text-sm text-muted-foreground">
+            这里的头像与个性签名会显示在网站首页左侧。改完点「保存」，再点顶部「发布到全网」即可更新公开站点。
+          </p>
+
+          {/* 头像预览 + 上传 */}
+          <div>
+            <label className="mb-2 block text-sm font-medium">头像</label>
+            <div className="flex items-center gap-4">
+              <div className="h-20 w-20 overflow-hidden rounded-full border-4 border-accent bg-accent/40">
+                {pf.avatar ? (
+                  <img src={pf.avatar} alt="头像" className="h-full w-full object-cover" />
+                ) : (
+                  <div className="flex h-full w-full items-center justify-center text-3xl text-primary">
+                    <User className="h-8 w-8" />
+                  </div>
+                )}
+              </div>
+              <div className="flex flex-col gap-2">
+                <button onClick={() => fileRef.current?.click()} className={btnGhost}>
+                  <Upload className="h-4 w-4" /> 上传图片
+                </button>
+                <input
+                  ref={fileRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={onAvatarUpload}
+                />
+                <input
+                  className={inputCls}
+                  value={pf.avatar}
+                  onChange={(e) => setPf({ ...pf, avatar: e.target.value })}
+                  placeholder="或粘贴图片链接（https://…）"
+                />
+              </div>
             </div>
           </div>
 
           <div>
-            <label className="mb-1 block text-sm font-medium">摘要</label>
-            <textarea
-              rows={2}
+            <label className="mb-1 block text-sm font-medium">昵称</label>
+            <input
               className={inputCls}
-              value={editing.summary}
-              onChange={(e) => setEditing({ ...editing, summary: e.target.value })}
-              placeholder="一句话简介"
+              value={pf.nickname}
+              onChange={(e) => setPf({ ...pf, nickname: e.target.value })}
+              placeholder="例如：歪歪"
             />
           </div>
 
           <div>
-            <label className="mb-1 block text-sm font-medium">正文（空一行分段）</label>
+            <label className="mb-1 block text-sm font-medium">个性签名（每行一句）</label>
             <textarea
-              rows={10}
-              className={`${inputCls} font-mono`}
-              value={editing.content}
-              onChange={(e) => setEditing({ ...editing, content: e.target.value })}
-              placeholder={'第一段\n\n第二段'}
+              rows={3}
+              className={inputCls}
+              value={pf.signature}
+              onChange={(e) => setPf({ ...pf, signature: e.target.value })}
+              placeholder={'爱生活，爱记录。\n美食、旅行、日常的碎碎念都收在这里。'}
             />
           </div>
 
           <div className="flex gap-2">
-            <button onClick={handleSave} className={btnPrimary}>
+            <button onClick={saveProfile} className={btnPrimary}>
               <Save className="h-4 w-4" /> 保存
             </button>
-            <button onClick={closeForm} className={btnGhost}>
-              <X className="h-4 w-4" /> 取消
+            <button onClick={handleResetProfile} className={btnGhost}>
+              <RotateCcw className="h-4 w-4" /> 恢复默认
             </button>
           </div>
         </div>
       )}
-
-      {/* 文章列表 */}
-      <div className="space-y-3">
-        {posts.map((p) => (
-          <div
-            key={p.id}
-            className="flex items-center gap-3 rounded-xl border bg-card p-4"
-          >
-            <span className="text-2xl">{p.coverEmoji}</span>
-            <div className="min-w-0 flex-1">
-              <div className="truncate font-medium">{p.title || '（无标题）'}</div>
-              <div className="text-xs text-muted-foreground">
-                {categoryIcons[p.category]} {p.category} · {p.date}
-              </div>
-            </div>
-            <button
-              onClick={() => openEdit(p)}
-              className="rounded-lg p-2 text-muted-foreground transition hover:bg-accent hover:text-foreground"
-              title="编辑"
-            >
-              <Pencil className="h-4 w-4" />
-            </button>
-            <button
-              onClick={() => handleDelete(p)}
-              className="rounded-lg p-2 text-muted-foreground transition hover:bg-destructive/10 hover:text-destructive"
-              title="删除"
-            >
-              <Trash2 className="h-4 w-4" />
-            </button>
-          </div>
-        ))}
-      </div>
     </div>
   );
 }

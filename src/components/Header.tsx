@@ -3,6 +3,7 @@ import { PenLine } from 'lucide-react';
 
 const navItems = [
   { path: '/', label: '首页' },
+  { path: '/posts', label: '文章' },
   { path: '/about', label: '关于' },
   { path: '/admin', label: '后台' },
 ];

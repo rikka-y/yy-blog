@@ -9,3 +9,9 @@ export interface BlogPost {
   content: string;
   coverEmoji: string;
 }
+
+export interface SiteProfile {
+  nickname: string;
+  signature: string;
+  avatar: string; // 图片 URL 或 data URI，留空则用默认头像
+}

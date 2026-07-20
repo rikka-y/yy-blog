@@ -1,15 +1,17 @@
 // 本地编辑服务：托管构建产物 + 提供文章读写 / 发布接口
 // 仅用于在本机编辑博客，改完通过 /api/publish 推送到 GitHub。
 import http from 'node:http';
+import https from 'node:https';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { execFile } from 'node:child_process';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DIST = path.join(__dirname, 'dist');
 const POSTS_FILE = path.join(__dirname, 'public', 'posts.json');
+const PROFILE_FILE = path.join(__dirname, 'public', 'profile.json');
 const PORT = process.env.PORT || 4173;
+const REPO = 'rikka-y/yy-blog';
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -45,28 +47,103 @@ function writePosts(text) {
   fs.writeFileSync(POSTS_FILE, text);
 }
 
-function gitPublish() {
+function readProfile() {
+  return fs.readFileSync(PROFILE_FILE, 'utf-8');
+}
+
+function writeProfile(text) {
+  fs.writeFileSync(PROFILE_FILE, text);
+}
+
+function apiRequest(method, url, headers, body) {
   return new Promise((resolve) => {
-    // 仅跟踪内容文件，避免无谓提交
-    execFile('git', ['add', 'public/posts.json'], { cwd: __dirname }, (err) => {
-      if (err) return resolve({ ok: false, error: 'git add 失败：' + err.message });
-      // 没有变化就不提交
-      execFile('git', ['diff', '--cached', '--quiet'], { cwd: __dirname }, (diffErr) => {
-        if (diffErr === null) {
-          // 退出码 0 表示无差异
-          return resolve({ ok: true, unchanged: true });
-        }
-        const msg = 'update posts via admin ' + new Date().toISOString().slice(0, 16);
-        execFile('git', ['commit', '-m', msg], { cwd: __dirname }, (cErr) => {
-          if (cErr) return resolve({ ok: false, error: 'git commit 失败：' + cErr.message });
-          execFile('git', ['push'], { cwd: __dirname }, (pErr, _so, se) => {
-            if (pErr) return resolve({ ok: false, error: 'git push 失败：' + (se || pErr.message) });
-            resolve({ ok: true });
-          });
+    const u = new URL(url);
+    const req = https.request(
+      { method, hostname: u.hostname, path: u.pathname + u.search, headers: { 'User-Agent': 'yy-blog-publisher', ...headers } },
+      (res) => {
+        let data = '';
+        res.on('data', (c) => (data += c));
+        res.on('end', () => {
+          let json;
+          try {
+            json = JSON.parse(data);
+          } catch {
+            json = data;
+          }
+          resolve({ status: res.statusCode, data: json });
         });
-      });
-    });
+      }
+    );
+    req.on('error', (e) => resolve({ status: 0, data: { error: e.message } }));
+    if (body) req.write(JSON.stringify(body));
+    req.end();
   });
+}
+
+// 通过 GitHub API 把指定文件推到仓库，触发 Actions 重新部署。
+// token 取自项目根目录 .publish-token 或环境变量 GITHUB_TOKEN。
+function publishFile(auth, filePath) {
+  return (async () => {
+    const getRes = await apiRequest(
+      'GET',
+      `https://api.github.com/repos/${REPO}/contents/${filePath}?ref=main`,
+      auth
+    );
+    if (getRes.status !== 200) {
+      return { ok: false, error: `获取远程 ${filePath} 失败：HTTP ${getRes.status}` };
+    }
+    const sha = getRes.data.sha;
+    const content = fs.readFileSync(path.join(__dirname, filePath)).toString('base64');
+    if ((getRes.data.content || '').replace(/\s/g, '') === content) {
+      return { ok: true, unchanged: true };
+    }
+    const putRes = await apiRequest(
+      'PUT',
+      `https://api.github.com/repos/${REPO}/contents/${filePath}`,
+      auth,
+      {
+        message: `update ${filePath} via admin ` + new Date().toISOString().slice(0, 16),
+        content,
+        sha,
+      }
+    );
+    if (putRes.status !== 200 && putRes.status !== 201) {
+      return {
+        ok: false,
+        error: `发布 ${filePath} 失败：HTTP ${putRes.status} ${JSON.stringify(putRes.data).slice(0, 200)}`,
+      };
+    }
+    return { ok: true };
+  })();
+}
+
+function publishViaApi() {
+  let token = '';
+  try {
+    token = fs.readFileSync(path.join(__dirname, '.publish-token'), 'utf-8').trim();
+  } catch {}
+  token = token || process.env.GITHUB_TOKEN || '';
+  if (!token) {
+    return Promise.resolve({
+      ok: false,
+      error: '未配置发布 token：请在项目根目录 .publish-token 写入 GitHub PAT，或设置环境变量 GITHUB_TOKEN',
+    });
+  }
+  const auth = {
+    Authorization: 'token ' + token,
+    Accept: 'application/vnd.github+json',
+    'Content-Type': 'application/json',
+  };
+  const files = ['public/posts.json', 'public/profile.json'];
+  return (async () => {
+    let anyChanged = false;
+    for (const f of files) {
+      const r = await publishFile(auth, f);
+      if (!r.ok) return r;
+      if (!r.unchanged) anyChanged = true;
+    }
+    return { ok: true, unchanged: !anyChanged };
+  })();
 }
 
 const server = http.createServer((req, res) => {
@@ -93,9 +170,30 @@ const server = http.createServer((req, res) => {
     }
   }
 
+  // 个人资料读取（直接读 public/profile.json）
+  if (url.pathname === '/profile.json' || url.pathname === '/api/profile') {
+    if (req.method === 'GET') {
+      try {
+        return sendJson(res, 200, JSON.parse(readProfile()));
+      } catch {
+        return sendJson(res, 500, { error: '读取资料失败' });
+      }
+    }
+    if (req.method === 'POST') {
+      readBody(req)
+        .then((body) => {
+          JSON.parse(body);
+          writeProfile(body);
+          return sendJson(res, 200, { ok: true });
+        })
+        .catch((e) => sendJson(res, 400, { error: '数据格式错误：' + e.message }));
+      return;
+    }
+  }
+
   // 一键发布
   if (url.pathname === '/api/publish' && req.method === 'POST') {
-    gitPublish().then((r) => sendJson(res, r.ok ? 200 : 500, r));
+    publishViaApi().then((r) => sendJson(res, r.ok ? 200 : 500, r));
     return;
   }
 
