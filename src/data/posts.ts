@@ -2,7 +2,7 @@ import type { BlogPost } from '@/types/blog';
 
 export const STORAGE_KEY = 'waiwai-posts';
 
-export const categories = ['美食', '旅行', '日常', '阅读', '随笔'] as const;
+export const categories = ['美食', '旅行', '日常', '阅读', '随笔', '泪桥'] as const;
 
 export const categoryIcons: Record<string, string> = {
   '美食': '🍜',
@@ -10,6 +10,7 @@ export const categoryIcons: Record<string, string> = {
   '日常': '📝',
   '阅读': '📚',
   '随笔': '✍️',
+  '泪桥': '💧',
 };
 
 export async function fetchBasePosts(): Promise<BlogPost[]> {
