@@ -66,9 +66,22 @@ export function PostPage() {
 
       {/* 正文 */}
       <div className="blog-content text-base">
-        {post.content.split('\n\n').map((paragraph, i) => (
-          <p key={i}>{paragraph.trim()}</p>
-        ))}
+        {post.content.split('\n\n').map((paragraph, i) => {
+          const trimmed = paragraph.trim();
+          const imgMatch = trimmed.match(/^!\[([^\]]*)\]\(([^)]+)\)$/);
+          if (imgMatch) {
+            return (
+              <img
+                key={i}
+                src={imgMatch[2]}
+                alt={imgMatch[1]}
+                className="my-4 w-full rounded-lg"
+                loading="lazy"
+              />
+            );
+          }
+          return <p key={i}>{trimmed}</p>;
+        })}
       </div>
 
       {/* 底部导航 */}
