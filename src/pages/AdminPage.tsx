@@ -12,11 +12,13 @@ import {
   Cloud,
   Upload,
   User,
+  KeyRound,
 } from 'lucide-react';
 import type { BlogPost, Category, SiteProfile } from '@/types/blog';
 import { categories, categoryIcons } from '@/data/posts';
 import { usePosts } from '@/data/PostsContext';
 import { useProfile } from '@/data/ProfileContext';
+import { getGHToken, setGHToken, clearGHToken, publishAll } from '@/data/githubPublisher';
 
 function blankPost(): BlogPost {
   return {
@@ -46,6 +48,9 @@ export function AdminPage() {
   const [editing, setEditing] = useState<BlogPost | null>(null);
   const [publishing, setPublishing] = useState(false);
   const [publishMsg, setPublishMsg] = useState<string>('');
+  const isLocal = ['localhost', '127.0.0.1'].includes(window.location.hostname);
+  const [ghToken, setGhToken] = useState<string>(() => getGHToken());
+  const [tokenInput, setTokenInput] = useState<string>('');
 
   // 个人资料表单
   const [pf, setPf] = useState<SiteProfile>(profile);
@@ -103,21 +108,39 @@ export function AdminPage() {
     setPublishing(true);
     setPublishMsg('');
     try {
-      const res = await fetch('/api/publish', { method: 'POST' });
-      const data = await res.json().catch(() => ({}));
-      if (res.ok && data.ok) {
-        setPublishMsg(
-          data.unchanged
-            ? '内容没有变化，无需发布 ✅'
-            : '已推送到 GitHub，正在自动部署，稍候公开链接就会更新 🚀'
-        );
+      if (isLocal) {
+        // 电脑端：走本地 server.js（含 .publish-token）
+        const res = await fetch('/api/publish', { method: 'POST' });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok && data.ok) {
+          setPublishMsg(
+            data.unchanged
+              ? '内容没有变化，无需发布 ✅'
+              : '已推送到 GitHub，正在自动部署，稍候公开链接就会更新 🚀'
+          );
+        } else {
+          setPublishMsg('发布失败：' + (data.error || '未知错误'));
+        }
       } else {
-        setPublishMsg(
-          '发布失败：' + (data.error || '未知错误') + '\n请确认你是通过「npm run serve」启动的本地服务。'
-        );
+        // 手机/公开端：前端直接调 GitHub API 推送
+        const token = getGHToken();
+        if (!token) {
+          setPublishMsg('请先在下方输入并保存发布令牌。');
+          return;
+        }
+        const r = await publishAll(token, posts, profile);
+        if (r.ok) {
+          setPublishMsg(
+            r.changed
+              ? '已推送到 GitHub，正在自动部署，稍候公开链接就会更新 🚀'
+              : '内容没有变化，无需发布 ✅'
+          );
+        } else {
+          setPublishMsg('发布失败：' + (r.error || '未知错误'));
+        }
       }
-    } catch {
-      setPublishMsg('发布失败：连不上本地发布服务。请确认服务在运行（npm run serve）。');
+    } catch (e) {
+      setPublishMsg('发布失败：' + (e instanceof Error ? e.message : String(e)));
     } finally {
       setPublishing(false);
     }
@@ -141,6 +164,51 @@ export function AdminPage() {
     return (
       <div className="mx-auto max-w-4xl px-6 py-20 text-center text-muted-foreground">
         加载中…
+      </div>
+    );
+  }
+
+  // 非本地访问且未设置发布令牌：先要求输入令牌，避免暴露编辑界面
+  if (!isLocal && !ghToken) {
+    return (
+      <div className="mx-auto max-w-md px-6 py-16">
+        <div className="space-y-4 rounded-2xl border bg-card p-8 text-center shadow-sm">
+          <KeyRound className="mx-auto h-10 w-10 text-primary" />
+          <h1 className="text-xl font-bold">需要发布令牌</h1>
+          <p className="text-sm leading-relaxed text-muted-foreground">
+            在手机上编辑发布，需要先输入一次 GitHub 发布令牌。令牌会存在这台手机的浏览器里，之后随时可用。
+          </p>
+          <input
+            className={inputCls}
+            value={tokenInput}
+            onChange={(e) => setTokenInput(e.target.value)}
+            placeholder="github_pat_…"
+          />
+          <button
+            onClick={() => {
+              const t = tokenInput.trim();
+              if (!t) {
+                alert('请粘贴令牌');
+                return;
+              }
+              setGHToken(t);
+              setGhToken(t);
+              setTokenInput('');
+            }}
+            className={`${btnPrimary} w-full justify-center`}
+          >
+            <Save className="h-4 w-4" /> 保存令牌
+          </button>
+          <p className="text-xs leading-relaxed text-muted-foreground">
+            没有令牌？在 GitHub → Settings → Developer settings → Personal access tokens → Fine-grained 生成，权限只给 rikka-y/yy-blog 的 Contents: Read and write。
+          </p>
+          <Link
+            to="/"
+            className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-primary"
+          >
+            <ArrowLeft className="h-4 w-4" /> 返回首页
+          </Link>
+        </div>
       </div>
     );
   }
@@ -178,6 +246,22 @@ export function AdminPage() {
         <pre className="mb-6 whitespace-pre-wrap rounded-lg bg-accent/40 px-4 py-2 text-sm text-foreground">
           {publishMsg}
         </pre>
+      )}
+
+      {/* 非本地：已设令牌提示 + 清除 */}
+      {!isLocal && ghToken && (
+        <div className="mb-6 flex items-center justify-between rounded-lg bg-accent/40 px-4 py-2 text-sm">
+          <span className="text-foreground">已设置发布令牌，可在手机上编辑发布 ✓</span>
+          <button
+            onClick={() => {
+              clearGHToken();
+              setGhToken('');
+            }}
+            className="text-muted-foreground underline hover:text-foreground"
+          >
+            清除令牌
+          </button>
+        </div>
       )}
 
       {/* 视图切换 */}
