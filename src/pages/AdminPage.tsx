@@ -13,12 +13,13 @@ import {
   Upload,
   User,
   KeyRound,
+  ImagePlus,
 } from 'lucide-react';
 import type { BlogPost, Category, SiteProfile } from '@/types/blog';
 import { categories, categoryIcons } from '@/data/posts';
 import { usePosts } from '@/data/PostsContext';
 import { useProfile } from '@/data/ProfileContext';
-import { getGHToken, setGHToken, clearGHToken, publishAll } from '@/data/githubPublisher';
+import { getGHToken, setGHToken, clearGHToken, publishAll, uploadImage } from '@/data/githubPublisher';
 
 function blankPost(): BlogPost {
   return {
@@ -39,6 +40,33 @@ const btnGhost =
 const inputCls =
   'w-full rounded-lg border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring';
 
+// 客户端压缩图片：缩放到 maxSize 宽以内，转 JPEG base64
+async function resizeImage(file: File, maxSize = 1600, quality = 0.85): Promise<{ base64: string }> {
+  const img = new Image();
+  const url = URL.createObjectURL(file);
+  await new Promise((resolve) => {
+    img.onload = resolve;
+    img.src = url;
+  });
+  URL.revokeObjectURL(url);
+  let { width, height } = img;
+  if (width > maxSize || height > maxSize) {
+    if (width > height) {
+      height = Math.round((height * maxSize) / width);
+      width = maxSize;
+    } else {
+      width = Math.round((width * maxSize) / height);
+      height = maxSize;
+    }
+  }
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  canvas.getContext('2d')!.drawImage(img, 0, 0, width, height);
+  const dataUrl = canvas.toDataURL('image/jpeg', quality);
+  return { base64: dataUrl.split(',')[1] };
+}
+
 export function AdminPage() {
   const { posts, loading, addPost, updatePost, deletePost, reset: resetPosts } = usePosts();
   const { profile, updateProfile, reset: resetProfile } = useProfile();
@@ -48,6 +76,7 @@ export function AdminPage() {
   const [editing, setEditing] = useState<BlogPost | null>(null);
   const [publishing, setPublishing] = useState(false);
   const [publishMsg, setPublishMsg] = useState<string>('');
+  const [uploadingImg, setUploadingImg] = useState(false);
   const isLocal = ['localhost', '127.0.0.1'].includes(window.location.hostname);
   const [ghToken, setGhToken] = useState<string>(() => getGHToken());
   const [tokenInput, setTokenInput] = useState<string>('');
@@ -55,6 +84,8 @@ export function AdminPage() {
   // 个人资料表单
   const [pf, setPf] = useState<SiteProfile>(profile);
   const fileRef = useRef<HTMLInputElement>(null);
+  const imgInputRef = useRef<HTMLInputElement>(null);
+  const contentRef = useRef<HTMLTextAreaElement>(null);
   useEffect(() => {
     if (view === 'profile') setPf(profile);
   }, [view, profile]);
@@ -86,6 +117,51 @@ export function AdminPage() {
 
   const handleDelete = (p: BlogPost) => {
     if (confirm(`确定删除《${p.title || '无标题'}》吗？`)) deletePost(p.id);
+  };
+
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = '';
+    if (file.size > 10 * 1024 * 1024) {
+      alert('图片不能超过 10MB');
+      return;
+    }
+    if (!editing) return;
+    setUploadingImg(true);
+    try {
+      const { base64 } = await resizeImage(file);
+      const fileName = `img-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.jpg`;
+      let imgUrl: string;
+      if (isLocal) {
+        const res = await fetch('/api/upload-image', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ fileName, base64 }),
+        });
+        const data = await res.json();
+        if (!res.ok || !data.ok) throw new Error(data.error || '上传失败');
+        imgUrl = data.url;
+      } else {
+        const token = getGHToken();
+        if (!token) throw new Error('请先设置发布令牌');
+        const r = await uploadImage(token, base64, fileName);
+        if (!r.ok) throw new Error(r.error);
+        imgUrl = r.url;
+      }
+      const marker = `\n\n![图片](${imgUrl})\n\n`;
+      const ta = contentRef.current;
+      if (ta) {
+        const pos = ta.selectionStart;
+        setEditing({ ...editing, content: editing.content.slice(0, pos) + marker + editing.content.slice(pos) });
+      } else {
+        setEditing({ ...editing, content: editing.content + marker });
+      }
+    } catch (err) {
+      alert('图片上传失败：' + (err instanceof Error ? err.message : String(err)));
+    } finally {
+      setUploadingImg(false);
+    }
   };
 
   const handleExport = () => {
@@ -352,14 +428,34 @@ export function AdminPage() {
               </div>
 
               <div>
-                <label className="mb-1 block text-sm font-medium">正文（空一行分段）</label>
+                <div className="mb-1 flex items-center justify-between">
+                  <label className="block text-sm font-medium">正文（空一行分段）</label>
+                  <button
+                    onClick={() => imgInputRef.current?.click()}
+                    disabled={uploadingImg}
+                    className="inline-flex items-center gap-1 text-sm text-primary hover:opacity-80 disabled:opacity-50"
+                  >
+                    <ImagePlus className="h-4 w-4" /> {uploadingImg ? '上传中…' : '插入图片'}
+                  </button>
+                  <input
+                    ref={imgInputRef}
+                    type="file"
+                    accept="image/jpeg,image/png,image/gif,image/webp"
+                    className="hidden"
+                    onChange={handleImageUpload}
+                  />
+                </div>
                 <textarea
+                  ref={contentRef}
                   rows={10}
                   className={`${inputCls} font-mono`}
                   value={editing.content}
                   onChange={(e) => setEditing({ ...editing, content: e.target.value })}
                   placeholder={'第一段\n\n第二段'}
                 />
+                <p className="mt-1 text-xs text-muted-foreground">
+                  支持 JPG / PNG / GIF / WebP，单张 ≤ 10MB，自动压缩到 1600px 宽。
+                </p>
               </div>
 
               <div className="flex gap-2">
