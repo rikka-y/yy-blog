@@ -101,3 +101,29 @@ export async function publishAll(
   }
   return { ok: true, changed };
 }
+
+// 上传图片到 public/images/，返回可用的 URL 路径
+export async function uploadImage(
+  token: string,
+  base64Content: string,
+  fileName: string,
+): Promise<{ ok: true; url: string } | { ok: false; error: string }> {
+  const filePath = `public/images/${fileName}`;
+  try {
+    const res = await fetch(`https://api.github.com/repos/${REPO}/contents/${filePath}`, {
+      method: 'PUT',
+      headers: authHeaders(token),
+      body: JSON.stringify({
+        message: `upload image ${fileName}`,
+        content: base64Content,
+      }),
+    });
+    if (res.status !== 200 && res.status !== 201) {
+      const d = await res.json().catch(() => ({}));
+      return { ok: false, error: `上传图片失败：HTTP ${res.status} ${JSON.stringify(d).slice(0, 200)}` };
+    }
+    return { ok: true, url: `/images/${fileName}` };
+  } catch (e) {
+    return { ok: false, error: `网络错误：${e instanceof Error ? e.message : String(e)}` };
+  }
+}
