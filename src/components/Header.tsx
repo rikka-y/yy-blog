@@ -1,15 +1,19 @@
 import { Link, useLocation } from 'react-router-dom';
 import { PenLine } from 'lucide-react';
+import { getGHToken } from '@/data/githubPublisher';
 
-const navItems = [
+const navItems: { path: string; label: string; localOnly?: boolean }[] = [
   { path: '/', label: '首页' },
   { path: '/posts', label: '文章' },
   { path: '/about', label: '关于' },
-  { path: '/admin', label: '后台' },
+  { path: '/admin', label: '后台', localOnly: true },
 ];
 
 export function Header() {
   const location = useLocation();
+  const isLocal = ['localhost', '127.0.0.1'].includes(window.location.hostname);
+  const hasToken = !!getGHToken();
+  const items = navItems.filter((item) => !item.localOnly || isLocal || hasToken);
 
   return (
     <header className="sticky top-0 z-50 border-b bg-background/80 backdrop-blur-sm">
@@ -19,7 +23,7 @@ export function Header() {
           <span>歪歪的日常</span>
         </Link>
         <nav className="flex items-center gap-6">
-          {navItems.map((item) => (
+          {items.map((item) => (
             <Link
               key={item.path}
               to={item.path}
