@@ -21,6 +21,9 @@ const MIME = {
   '.svg': 'image/svg+xml',
   '.png': 'image/png',
   '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
   '.ico': 'image/x-icon',
   '.woff2': 'font/woff2',
 };
@@ -194,6 +197,26 @@ const server = http.createServer((req, res) => {
   // 一键发布
   if (url.pathname === '/api/publish' && req.method === 'POST') {
     publishViaApi().then((r) => sendJson(res, r.ok ? 200 : 500, r));
+    return;
+  }
+
+  // 图片上传（本地模式）
+  if (url.pathname === '/api/upload-image' && req.method === 'POST') {
+    readBody(req)
+      .then((body) => {
+        const { fileName, base64 } = JSON.parse(body);
+        if (!fileName || !base64) throw new Error('缺少 fileName 或 base64');
+        const imagesDir = path.join(__dirname, 'public', 'images');
+        fs.mkdirSync(imagesDir, { recursive: true });
+        const filePath = path.join(imagesDir, fileName);
+        fs.writeFileSync(filePath, Buffer.from(base64, 'base64'));
+        // 同时写一份到 dist 供本地即时预览
+        const distDir = path.join(__dirname, 'dist', 'images');
+        fs.mkdirSync(distDir, { recursive: true });
+        fs.writeFileSync(path.join(distDir, fileName), Buffer.from(base64, 'base64'));
+        return sendJson(res, 200, { ok: true, url: `/images/${fileName}` });
+      })
+      .catch((e) => sendJson(res, 400, { error: '上传失败：' + e.message }));
     return;
   }
 
