@@ -11,6 +11,7 @@ import {
   ArrowLeft,
   Cloud,
   Upload,
+  RefreshCw,
   User,
   KeyRound,
   ImagePlus,
@@ -80,6 +81,7 @@ export function AdminPage() {
   const isLocal = ['localhost', '127.0.0.1'].includes(window.location.hostname);
   const [ghToken, setGhToken] = useState<string>(() => getGHToken());
   const [tokenInput, setTokenInput] = useState<string>('');
+  const [syncing, setSyncing] = useState(false);
 
   // 个人资料表单
   const [pf, setPf] = useState<SiteProfile>(profile);
@@ -178,6 +180,18 @@ export function AdminPage() {
 
   const handleResetPosts = () => {
     if (confirm('确定恢复为原始文章？（会清除你浏览器里的本地修改）')) resetPosts();
+  };
+
+  const handleSync = async () => {
+    if (!isLocal) return;
+    setSyncing(true);
+    try {
+      await fetch('/api/sync', { method: 'POST' });
+      window.location.reload();
+    } catch {
+      alert('同步失败，请确认服务正在运行');
+      setSyncing(false);
+    }
   };
 
   const handlePublish = async () => {
@@ -312,6 +326,11 @@ export function AdminPage() {
           <button onClick={handleResetPosts} className={btnGhost}>
             <RotateCcw className="h-4 w-4" /> 恢复文章
           </button>
+          {isLocal && (
+            <button onClick={handleSync} disabled={syncing} className={btnGhost}>
+              <RefreshCw className="h-4 w-4" /> {syncing ? '同步中…' : '从云端同步'}
+            </button>
+          )}
           <button onClick={openNew} className={btnPrimary}>
             <Plus className="h-4 w-4" /> 新建文章
           </button>
