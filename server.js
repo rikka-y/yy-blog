@@ -149,6 +149,56 @@ function publishViaApi() {
   })();
 }
 
+// 从 GitHub 拉取最新 posts.json / profile.json 到本地，
+// 使电脑端编辑服务与线上（手机端发布的内容）保持一致。
+// 仅当本地文件不比远程更新时才覆盖，避免冲掉本地未发布的草稿。
+function pullLatestFromGitHub(force = false) {
+  const token =
+    (() => {
+      try {
+        return fs.readFileSync(path.join(__dirname, '.publish-token'), 'utf-8').trim();
+      } catch {
+        return '';
+      }
+    })() || process.env.GITHUB_TOKEN || '';
+  const auth = {
+    Accept: 'application/vnd.github+json',
+    ...(token ? { Authorization: 'token ' + token } : {}),
+  };
+  const files = [
+    { remote: 'posts.json', local: POSTS_FILE },
+    { remote: 'profile.json', local: PROFILE_FILE },
+  ];
+  return (async () => {
+    const results = [];
+    for (const f of files) {
+      try {
+        const res = await apiRequest(
+          'GET',
+          `https://api.github.com/repos/${REPO}/contents/${f.remote}?ref=main`,
+          auth
+        );
+        if (res.status !== 200 || !res.data.content) {
+          results.push({ file: f.remote, ok: false, error: 'HTTP ' + res.status });
+          continue;
+        }
+        const remoteUpdated = new Date(res.data.updated_at).getTime();
+        const localMtime = fs.existsSync(f.local) ? fs.statSync(f.local).mtimeMs : 0;
+        if (!force && localMtime > remoteUpdated + 2000) {
+          results.push({ file: f.remote, ok: true, skipped: true });
+          continue;
+        }
+        const text = Buffer.from(res.data.content.replace(/\s/g, ''), 'base64').toString('utf-8');
+        fs.writeFileSync(f.local, text);
+        results.push({ file: f.remote, ok: true, pulled: true });
+      } catch (e) {
+        results.push({ file: f.remote, ok: false, error: e.message });
+      }
+    }
+    return results;
+  })();
+}
+
 const server = http.createServer((req, res) => {
   const url = new URL(req.url, 'http://localhost');
 
@@ -220,6 +270,12 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  // 手动从 GitHub 同步最新数据到本地（强制覆盖，忽略本地草稿）
+  if (url.pathname === '/api/sync' && req.method === 'POST') {
+    pullLatestFromGitHub(true).then((r) => sendJson(res, 200, { ok: true, results: r }));
+    return;
+  }
+
   // 静态资源
   let filePath = path.join(DIST, url.pathname === '/' ? 'index.html' : url.pathname);
   if (!filePath.startsWith(DIST)) {
@@ -248,4 +304,12 @@ const server = http.createServer((req, res) => {
 server.listen(PORT, () => {
   console.log(`博客编辑服务已启动：http://localhost:${PORT}`);
   console.log(`后台地址：http://localhost:${PORT}/#/admin`);
+  // 启动即从 GitHub 拉取最新数据，使电脑端与手机端发布的内容保持一致
+  pullLatestFromGitHub().then((r) => {
+    r.forEach((x) =>
+      console.log(
+        `同步 ${x.file}: ${x.pulled ? '已拉取最新' : x.skipped ? '本地较新，跳过' : '失败 ' + (x.error || '')}`
+      )
+    );
+  });
 });
