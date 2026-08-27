@@ -122,7 +122,7 @@ export async function uploadImage(
       const d = await res.json().catch(() => ({}));
       return { ok: false, error: `上传图片失败：HTTP ${res.status} ${JSON.stringify(d).slice(0, 200)}` };
     }
-    return { ok: true, url: `/images/${fileName}` };
+    return { ok: true, url: `images/${fileName}` };
   } catch (e) {
     return { ok: false, error: `网络错误：${e instanceof Error ? e.message : String(e)}` };
   }
