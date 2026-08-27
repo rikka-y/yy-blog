@@ -303,7 +303,7 @@ const server = http.createServer((req, res) => {
         const distDir = path.join(__dirname, 'dist', 'images');
         fs.mkdirSync(distDir, { recursive: true });
         fs.writeFileSync(path.join(distDir, fileName), Buffer.from(base64, 'base64'));
-        return sendJson(res, 200, { ok: true, url: `/images/${fileName}` });
+        return sendJson(res, 200, { ok: true, url: `images/${fileName}` });
       })
       .catch((e) => sendJson(res, 400, { error: '上传失败：' + e.message }));
     return;
