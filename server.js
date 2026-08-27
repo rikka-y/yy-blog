@@ -149,7 +149,7 @@ function publishViaApi() {
   })();
 }
 
-// 从 GitHub 拉取最新 posts.json / profile.json 到本地，
+// 从 GitHub 拉取最新 posts.json / profile.json / images 到本地，
 // 使电脑端编辑服务与线上（手机端发布的内容）保持一致。
 // 仅当本地文件不比远程更新时才覆盖，避免冲掉本地未发布的草稿。
 function pullLatestFromGitHub(force = false) {
@@ -162,15 +162,18 @@ function pullLatestFromGitHub(force = false) {
       }
     })() || process.env.GITHUB_TOKEN || '';
   const auth = {
-    Accept: 'application/vnd.github+json',
+    Accept: 'application/vnd.github.com+json',
     ...(token ? { Authorization: 'token ' + token } : {}),
   };
   const files = [
     { remote: 'posts.json', local: POSTS_FILE },
     { remote: 'profile.json', local: PROFILE_FILE },
   ];
+  const imagesLocalDir = path.join(__dirname, 'public', 'images');
+  const imagesDistDir = path.join(__dirname, 'dist', 'images');
   return (async () => {
     const results = [];
+    // 同步 JSON 数据文件
     for (const f of files) {
       try {
         const res = await apiRequest(
@@ -194,6 +197,42 @@ function pullLatestFromGitHub(force = false) {
       } catch (e) {
         results.push({ file: f.remote, ok: false, error: e.message });
       }
+    }
+    // 同步 images 目录（手机端上传的图片）
+    try {
+      const res = await apiRequest(
+        'GET',
+        `https://api.github.com/repos/${REPO}/contents/public/images?ref=main`,
+        auth
+      );
+      if (res.status === 200 && Array.isArray(res.data)) {
+        fs.mkdirSync(imagesLocalDir, { recursive: true });
+        fs.mkdirSync(imagesDistDir, { recursive: true });
+        let imgPulled = 0;
+        for (const entry of res.data) {
+          if (entry.type !== 'file') continue;
+          const localPath = path.join(imagesLocalDir, entry.name);
+          const distPath = path.join(imagesDistDir, entry.name);
+          const remoteUpdated = new Date(entry.updated_at || entry.date).getTime();
+          const localMtime = fs.existsSync(localPath) ? fs.statSync(localPath).mtimeMs : 0;
+          if (!force && localMtime > remoteUpdated + 2000) continue;
+          const dl = await apiRequest(
+            'GET',
+            `https://api.github.com/repos/${REPO}/contents/public/images/${entry.name}?ref=main`,
+            auth
+          );
+          if (dl.status !== 200 || !dl.data.content) continue;
+          const buf = Buffer.from(dl.data.content.replace(/\s/g, ''), 'base64');
+          fs.writeFileSync(localPath, buf);
+          fs.writeFileSync(distPath, buf);
+          imgPulled++;
+        }
+        results.push({ file: 'images/', ok: true, pulled: imgPulled > 0, count: imgPulled });
+      } else {
+        results.push({ file: 'images/', ok: true, skipped: true });
+      }
+    } catch (e) {
+      results.push({ file: 'images/', ok: false, error: e.message });
     }
     return results;
   })();
