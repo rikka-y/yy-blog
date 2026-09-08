@@ -79,7 +79,7 @@ export function LandingPage() {
 
           <div className="mt-8 rounded-2xl border border-dashed bg-accent/30 p-6 text-center">
             <p className="text-sm text-muted-foreground">
-              想看所有文章？点右上角「全部文章」，或直接进
+              {profile.homeHint || '想看所有文章？点右上角「全部文章」，或直接进入'}
               <Link to="/posts" className="mx-1 font-medium text-primary hover:underline">
                 文章列表
               </Link>
