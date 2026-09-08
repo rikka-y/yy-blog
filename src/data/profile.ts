@@ -6,6 +6,9 @@ export const DEFAULT_PROFILE: SiteProfile = {
   nickname: '歪歪',
   signature: '爱生活，爱记录。',
   avatar: '',
+  siteName: '歪歪的日常',
+  footerText: '记录生活的小确幸',
+  homeHint: '想看所有文章？点右上角「全部文章」，或直接进入文章列表。',
 };
 
 export async function fetchBaseProfile(): Promise<SiteProfile> {
