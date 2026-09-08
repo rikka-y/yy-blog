@@ -526,7 +526,7 @@ export function AdminPage() {
       {view === 'profile' && (
         <div className="space-y-4 rounded-xl border bg-card p-6">
           <p className="rounded-lg bg-accent/40 px-4 py-2 text-sm text-muted-foreground">
-            这里的头像与个性签名会显示在网站首页左侧。改完点「保存」，再点顶部「发布到全网」即可更新公开站点。
+            这里的头像与个性签名会显示在网站首页左侧。网站名称、页脚文案、首页提示也可在此自定义。改完点「保存」，再点顶部「发布到全网」即可更新公开站点。
           </p>
 
           {/* 头像预览 + 上传 */}
@@ -582,6 +582,44 @@ export function AdminPage() {
               onChange={(e) => setPf({ ...pf, signature: e.target.value })}
               placeholder={'爱生活，爱记录。\n美食、旅行、日常的碎碎念都收在这里。'}
             />
+          </div>
+
+          <div className="border-t pt-4">
+            <p className="mb-3 text-sm font-medium text-foreground">网站自定义文案</p>
+          </div>
+
+          <div>
+            <label className="mb-1 block text-sm font-medium">网站名称</label>
+            <input
+              className={inputCls}
+              value={pf.siteName || ''}
+              onChange={(e) => setPf({ ...pf, siteName: e.target.value })}
+              placeholder="例如：歪歪的日常"
+            />
+            <p className="mt-1 text-xs text-muted-foreground">显示在导航栏左上角和页脚。</p>
+          </div>
+
+          <div>
+            <label className="mb-1 block text-sm font-medium">页脚文案</label>
+            <input
+              className={inputCls}
+              value={pf.footerText || ''}
+              onChange={(e) => setPf({ ...pf, footerText: e.target.value })}
+              placeholder="例如：记录生活的小确幸"
+            />
+            <p className="mt-1 text-xs text-muted-foreground">显示在页面底部版权栏，格式为「© 年份 网站名称 · 页脚文案」。</p>
+          </div>
+
+          <div>
+            <label className="mb-1 block text-sm font-medium">首页提示文字</label>
+            <textarea
+              rows={2}
+              className={inputCls}
+              value={pf.homeHint || ''}
+              onChange={(e) => setPf({ ...pf, homeHint: e.target.value })}
+              placeholder="想看所有文章？点右上角「全部文章」，或直接进入文章列表。"
+            />
+            <p className="mt-1 text-xs text-muted-foreground">首页分类浏览区域下方的提示框文字。留空则显示默认内容。</p>
           </div>
 
           <div className="flex gap-2">
