@@ -87,33 +87,61 @@ function apiRequest(method, url, headers, body) {
 // token 取自项目根目录 .publish-token 或环境变量 GITHUB_TOKEN。
 function publishFile(auth, filePath) {
   return (async () => {
-    const getRes = await apiRequest(
-      'GET',
-      `https://api.github.com/repos/${REPO}/contents/${filePath}?ref=main`,
-      auth
-    );
-    if (getRes.status !== 200) {
-      return { ok: false, error: `获取远程 ${filePath} 失败：HTTP ${getRes.status}` };
+    const getRemote = async () => {
+      const res = await apiRequest(
+        'GET',
+        `https://api.github.com/repos/${REPO}/contents/${filePath}?ref=main`,
+        auth
+      );
+      if (res.status !== 200) return { status: res.status, sha: null, content: '' };
+      return {
+        status: res.status,
+        sha: res.data.sha,
+        content: (res.data.content || '').replace(/\s/g, ''),
+      };
+    };
+
+    const localBase64 = fs.readFileSync(path.join(__dirname, filePath)).toString('base64');
+    let remote = await getRemote();
+    if (remote.status !== 200) {
+      return { ok: false, error: `获取远程 ${filePath} 失败：HTTP ${remote.status}` };
     }
-    const sha = getRes.data.sha;
-    const content = fs.readFileSync(path.join(__dirname, filePath)).toString('base64');
-    if ((getRes.data.content || '').replace(/\s/g, '') === content) {
+    if (remote.content === localBase64) {
       return { ok: true, unchanged: true };
     }
-    const putRes = await apiRequest(
-      'PUT',
-      `https://api.github.com/repos/${REPO}/contents/${filePath}`,
-      auth,
-      {
-        message: `update ${filePath} via admin ` + new Date().toISOString().slice(0, 16),
-        content,
-        sha,
+
+    const put = async (sha) => {
+      const putRes = await apiRequest(
+        'PUT',
+        `https://api.github.com/repos/${REPO}/contents/${filePath}`,
+        auth,
+        {
+          message: `update ${filePath} via admin ` + new Date().toISOString().slice(0, 16),
+          content: localBase64,
+          sha,
+        }
+      );
+      return {
+        ok: putRes.status === 200 || putRes.status === 201,
+        status: putRes.status,
+        data: putRes.data,
+      };
+    };
+
+    let r = await put(remote.sha);
+    // 409 = sha 过期（期间远端被别的提交改动），重新取一次最新 sha 再试
+    if (!r.ok && r.status === 409) {
+      remote = await getRemote();
+      if (remote.status !== 200) {
+        return { ok: false, error: `获取远程 ${filePath} 失败：HTTP ${remote.status}` };
       }
-    );
-    if (putRes.status !== 200 && putRes.status !== 201) {
+      if (remote.content === localBase64) return { ok: true, unchanged: true };
+      r = await put(remote.sha);
+    }
+    if (!r.ok) {
       return {
         ok: false,
-        error: `发布 ${filePath} 失败：HTTP ${putRes.status} ${JSON.stringify(putRes.data).slice(0, 200)}`,
+        error: `发布 ${filePath} 失败：HTTP ${r.status} ${JSON.stringify(r.data).slice(0, 200)}`,
       };
     }
     return { ok: true };
@@ -166,11 +194,27 @@ function pullLatestFromGitHub(force = false) {
     ...(token ? { Authorization: 'token ' + token } : {}),
   };
   const files = [
-    { remote: 'posts.json', local: POSTS_FILE },
-    { remote: 'profile.json', local: PROFILE_FILE },
+    { remote: 'public/posts.json', local: POSTS_FILE },
+    { remote: 'public/profile.json', local: PROFILE_FILE },
   ];
   const imagesLocalDir = path.join(__dirname, 'public', 'images');
   const imagesDistDir = path.join(__dirname, 'dist', 'images');
+
+  // contents API 不返回 updated_at（文件和目录都没有该字段），
+  // 要判断远端文件的新旧只能走 commits API 查该路径最后一次提交时间。
+  const lastCommitTime = async (repoPath) => {
+    const res = await apiRequest(
+      'GET',
+      `https://api.github.com/repos/${REPO}/commits?path=${encodeURIComponent(repoPath)}&per_page=1`,
+      auth
+    );
+    if (res.status === 200 && Array.isArray(res.data) && res.data.length) {
+      const t = res.data[0].commit?.committer?.date || res.data[0].commit?.author?.date;
+      return t ? new Date(t).getTime() : 0;
+    }
+    return 0;
+  };
+
   return (async () => {
     const results = [];
     // 同步 JSON 数据文件
@@ -185,7 +229,7 @@ function pullLatestFromGitHub(force = false) {
           results.push({ file: f.remote, ok: false, error: 'HTTP ' + res.status });
           continue;
         }
-        const remoteUpdated = new Date(res.data.updated_at).getTime();
+        const remoteUpdated = await lastCommitTime(f.remote);
         const localMtime = fs.existsSync(f.local) ? fs.statSync(f.local).mtimeMs : 0;
         if (!force && localMtime > remoteUpdated + 2000) {
           results.push({ file: f.remote, ok: true, skipped: true });
@@ -213,7 +257,7 @@ function pullLatestFromGitHub(force = false) {
           if (entry.type !== 'file') continue;
           const localPath = path.join(imagesLocalDir, entry.name);
           const distPath = path.join(imagesDistDir, entry.name);
-          const remoteUpdated = new Date(entry.updated_at || entry.date).getTime();
+          const remoteUpdated = await lastCommitTime(`public/images/${entry.name}`);
           const localMtime = fs.existsSync(localPath) ? fs.statSync(localPath).mtimeMs : 0;
           if (!force && localMtime > remoteUpdated + 2000) continue;
           const dl = await apiRequest(
